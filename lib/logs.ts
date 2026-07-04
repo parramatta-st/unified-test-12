@@ -7,10 +7,37 @@ export const FEEDBACK_LOG_HEADERS = [
 ];
 
 export const PRINT_LOG_HEADERS = [
-  'Timestamp', 'Kind', 'Student', 'Tutor', 'Year', 'Subject', 'Topic', 'Types/MaterialID', 'Names', 'Qty', 'Printer', 'OK', 'PrintColorMode', 'Raw'
+  'Timestamp', 'Kind', 'Student', 'Tutor', 'Year', 'Subject', 'Topic', 'Types/MaterialID', 'Qty', 'Printer', 'OK', 'Raw'
 ];
 
 function norm(v: any) { return String(v ?? '').trim(); }
+
+function formatPrintLogTimestamp(value: any) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return norm(value);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: process.env.PRINT_LOG_TIME_ZONE || 'Australia/Sydney',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  return `${part('month')}/${part('day')}/${part('year')} ${part('hour')}:${part('minute')}:${part('second')}`;
+}
+
+function printMaterialLabels(raw: any, names: any[], ids: any[]) {
+  const direct = Array.isArray(raw.materials) ? raw.materials : Array.isArray(raw.types) ? raw.types : [];
+  if (direct.length) return direct;
+  const typeLabels = Array.isArray(raw.type_labels) ? raw.type_labels : [];
+  return names.map((name, index) => {
+    const type = typeLabels[index] || raw.type || '';
+    return name && type ? `${type}: ${name}` : name || type || ids[index] || '';
+  }).filter((value) => norm(value) !== '');
+}
 
 export async function loadFeedbackLogRows() {
   return loadRowsPrivateFirst({
@@ -51,22 +78,20 @@ export function buildPrintLogRow(body: any) {
   const raw = body || {};
   const names = Array.isArray(raw.names) ? raw.names : raw.names ? [raw.names] : [];
   const ids = Array.isArray(raw.material_ids) ? raw.material_ids : raw.material_id ? [raw.material_id] : [];
-  const modes = raw.printColorModes || raw.colorModeLabels || raw.printColorMode || raw.print_color_mode || raw.colorMode || raw.color_mode || '';
+  const materialLabels = printMaterialLabels(raw, names, ids);
   return {
-    Timestamp: raw.when || raw.timestamp || new Date().toISOString(),
+    Timestamp: formatPrintLogTimestamp(raw.when || raw.timestamp),
     Kind: raw.kind || '',
     Student: raw.student || '',
     Tutor: raw.tutor || '',
     Year: raw.year || '',
     Subject: raw.subject || '',
     Topic: raw.topic || raw.strand || '',
-    'Types/MaterialID': ids.length ? JSON.stringify(ids) : (raw.type || raw.name || ''),
+    'Types/MaterialID': materialLabels.length ? JSON.stringify(materialLabels) : (ids.length ? JSON.stringify(ids) : (raw.type || raw.name || '')),
     Qty: raw.qty || '',
     Printer: raw.printer || '',
     OK: raw.ok === undefined ? '' : String(!!raw.ok).toUpperCase(),
-    PrintColorMode: Array.isArray(modes) ? JSON.stringify(modes) : norm(modes),
     Raw: JSON.stringify(raw),
-    Names: names.length ? JSON.stringify(names) : '',
   };
 }
 
